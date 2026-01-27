@@ -1,10 +1,11 @@
-import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
-import { getModel, type ImageContent } from "@mariozechner/pi-ai";
+import { Agent, type AgentEvent, type ThinkingLevel } from "@mariozechner/pi-agent-core";
+import type { Api, ImageContent, KnownProvider, Model } from "@mariozechner/pi-ai";
 import {
 	AgentSession,
 	AuthStorage,
 	convertToLlm,
 	createExtensionRuntime,
+	defaultModelPerProvider,
 	formatSkillsForPrompt,
 	loadSkillsFromDir,
 	ModelRegistry,
@@ -23,9 +24,6 @@ import type { ChannelInfo, SlackContext, UserInfo } from "./slack.js";
 import type { ChannelStore } from "./store.js";
 import { createMomTools, setUploadFunction } from "./tools/index.js";
 
-// Hardcoded model for now - TODO: make configurable (issue #63)
-const model = getModel("anthropic", "claude-sonnet-4-5");
-
 export interface PendingMessage {
 	userName: string;
 	text: string;
@@ -42,18 +40,6 @@ export interface AgentRunner {
 	abort(): void;
 }
 
-async function getAnthropicApiKey(authStorage: AuthStorage): Promise<string> {
-	const key = await authStorage.getApiKey("anthropic");
-	if (!key) {
-		throw new Error(
-			"No API key found for anthropic.\n\n" +
-				"Set an API key environment variable, or use /login with Anthropic and link to auth.json from " +
-				join(homedir(), ".pi", "mom", "auth.json"),
-		);
-	}
-	return key;
-}
-
 const IMAGE_MIME_TYPES: Record<string, string> = {
 	jpg: "image/jpeg",
 	jpeg: "image/jpeg",
@@ -64,6 +50,56 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 
 function getImageMimeType(filename: string): string | undefined {
 	return IMAGE_MIME_TYPES[filename.toLowerCase().split(".").pop() || ""];
+}
+
+async function resolveModel(
+	settingsManager: MomSettingsManager,
+	modelRegistry: ModelRegistry,
+): Promise<{ model: Model<Api>; thinkingLevel: ThinkingLevel }> {
+	const thinkingLevel = (settingsManager.getDefaultThinkingLevel() || "off") as ThinkingLevel;
+
+	// 1. Try settings
+	const settingsProvider = settingsManager.getDefaultProvider();
+	const settingsModelId = settingsManager.getDefaultModel();
+
+	if (settingsProvider && settingsModelId) {
+		const found = modelRegistry.find(settingsProvider, settingsModelId);
+		if (found) {
+			const key = await modelRegistry.getApiKey(found);
+			if (key) {
+				return { model: found, thinkingLevel };
+			}
+			log.logWarning(
+				"Settings model has no API key",
+				`${settingsProvider}/${settingsModelId}. Falling back to auto-detect.`,
+			);
+		} else {
+			log.logWarning(
+				"Settings model not found",
+				`${settingsProvider}/${settingsModelId}. Falling back to auto-detect.`,
+			);
+		}
+	}
+
+	// 2. Auto-detect: iterate defaultModelPerProvider, pick first with auth
+	const availableModels = modelRegistry.getAvailable();
+	for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
+		const defaultId = defaultModelPerProvider[provider];
+		const match = availableModels.find((m) => m.provider === provider && m.id === defaultId);
+		if (match) {
+			return { model: match, thinkingLevel };
+		}
+	}
+
+	// 3. If no default found, use first available
+	if (availableModels.length > 0) {
+		return { model: availableModels[0], thinkingLevel };
+	}
+
+	throw new Error(
+		"No models available. Set an API key environment variable (e.g., ANTHROPIC_API_KEY, OPENAI_API_KEY) " +
+			"or configure OAuth via the coding agent's /login command and link auth.json to ~/.pi/mom/auth.json",
+	);
 }
 
 function getMemory(channelDir: string): string {
@@ -395,11 +431,15 @@ const channelRunners = new Map<string, AgentRunner>();
  * Get or create an AgentRunner for a channel.
  * Runners are cached - one per channel, persistent across messages.
  */
-export function getOrCreateRunner(sandboxConfig: SandboxConfig, channelId: string, channelDir: string): AgentRunner {
+export async function getOrCreateRunner(
+	sandboxConfig: SandboxConfig,
+	channelId: string,
+	channelDir: string,
+): Promise<AgentRunner> {
 	const existing = channelRunners.get(channelId);
 	if (existing) return existing;
 
-	const runner = createRunner(sandboxConfig, channelId, channelDir);
+	const runner = await createRunner(sandboxConfig, channelId, channelDir);
 	channelRunners.set(channelId, runner);
 	return runner;
 }
@@ -408,7 +448,7 @@ export function getOrCreateRunner(sandboxConfig: SandboxConfig, channelId: strin
  * Create a new AgentRunner for a channel.
  * Sets up the session and subscribes to events once.
  */
-function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDir: string): AgentRunner {
+async function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDir: string): Promise<AgentRunner> {
 	const executor = createExecutor(sandboxConfig);
 	const workspacePath = executor.getWorkspacePath(channelDir.replace(`/${channelId}`, ""));
 
@@ -431,16 +471,30 @@ function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDi
 	const authStorage = new AuthStorage(join(homedir(), ".pi", "mom", "auth.json"));
 	const modelRegistry = new ModelRegistry(authStorage);
 
+	// Resolve model from settings or auto-detect
+	const { model, thinkingLevel } = await resolveModel(settingsManager, modelRegistry);
+	log.logInfo(`[${channelId}] Using model: ${model.provider}/${model.id} (thinking: ${thinkingLevel})`);
+
 	// Create agent
 	const agent = new Agent({
 		initialState: {
 			systemPrompt,
 			model,
-			thinkingLevel: "off",
+			thinkingLevel,
 			tools,
 		},
 		convertToLlm,
-		getApiKey: async () => getAnthropicApiKey(authStorage),
+		getApiKey: async () => {
+			const key = await modelRegistry.getApiKey(model);
+			if (!key) {
+				throw new Error(
+					`No API key found for ${model.provider}. ` +
+						"Set the appropriate API key environment variable, or use /login in the coding agent " +
+						"and link auth.json to ~/.pi/mom/auth.json",
+				);
+			}
+			return key;
+		},
 	});
 
 	// Load existing messages
@@ -840,7 +894,7 @@ function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDi
 						lastAssistantMessage.usage.cacheRead +
 						lastAssistantMessage.usage.cacheWrite
 					: 0;
-				const contextWindow = model.contextWindow || 200000;
+				const contextWindow = model.contextWindow;
 
 				const summary = log.logUsageSummary(runState.logCtx!, runState.totalUsage, contextTokens, contextWindow);
 				runState.queue.enqueue(() => ctx.respondInThread(summary), "usage summary");
