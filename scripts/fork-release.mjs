@@ -18,7 +18,8 @@ const PRERELEASE_ID = "fork";
 
 function run(cmd, options = {}) {
 	try {
-		return execSync(cmd, { encoding: "utf-8", stdio: "pipe", ...options }).trim();
+		const result = execSync(cmd, { encoding: "utf-8", stdio: "pipe", ...options });
+		return result?.trim() ?? null;
 	} catch (e) {
 		if (!options.ignoreError) {
 			console.error(`Command failed: ${cmd}`);
