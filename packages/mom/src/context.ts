@@ -163,6 +163,10 @@ export interface MomSettings {
 	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
 	compaction?: Partial<MomCompactionSettings>;
 	retry?: Partial<MomRetrySettings>;
+	images?: { autoResize?: boolean };
+	shellCommandPrefix?: string;
+	branchSummary?: { reserveTokens?: number };
+	theme?: string;
 }
 
 const DEFAULT_COMPACTION: MomCompactionSettings = {
@@ -293,5 +297,23 @@ export class MomSettingsManager {
 
 	getHookTimeout(): number {
 		return 30000;
+	}
+
+	getImageAutoResize(): boolean {
+		return this.settings.images?.autoResize ?? true;
+	}
+
+	getShellCommandPrefix(): string | undefined {
+		return this.settings.shellCommandPrefix;
+	}
+
+	getBranchSummarySettings(): { reserveTokens: number } {
+		return {
+			reserveTokens: this.settings.branchSummary?.reserveTokens ?? 16384,
+		};
+	}
+
+	getTheme(): string | undefined {
+		return this.settings.theme;
 	}
 }
