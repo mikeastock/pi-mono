@@ -62,9 +62,9 @@ npm install @mariozechner/pi-mom
 # Set environment variables
 export MOM_SLACK_APP_TOKEN=xapp-...
 export MOM_SLACK_BOT_TOKEN=xoxb-...
-# Option 1: Anthropic API key
-export ANTHROPIC_API_KEY=sk-ant-...
-# Option 2: use /login command in pi agent, then copy/link auth.json to ~/.pi/mom/
+# Set at least one provider API key
+export ANTHROPIC_API_KEY=sk-ant-...   # or OPENAI_API_KEY, GEMINI_API_KEY, etc.
+# Or: use /login command in pi agent, then link auth.json to ~/.pi/mom/
 
 # Create Docker sandbox (recommended)
 docker run -d \
@@ -96,23 +96,48 @@ Options:
 | `MOM_SLACK_APP_TOKEN` | Slack app-level token (xapp-...) |
 | `MOM_SLACK_BOT_TOKEN` | Slack bot token (xoxb-...) |
 | `ANTHROPIC_API_KEY` | (Optional) Anthropic API key |
+| `OPENAI_API_KEY` | (Optional) OpenAI API key |
+| `GEMINI_API_KEY` | (Optional) Google Gemini API key |
+| `XAI_API_KEY` | (Optional) xAI API key |
+| `MISTRAL_API_KEY` | (Optional) Mistral API key |
+| `GROQ_API_KEY` | (Optional) Groq API key |
+| `OPENROUTER_API_KEY` | (Optional) OpenRouter API key |
 
 ## Authentication
 
-Mom needs credentials for Anthropic API. The options to set it are:
+Mom needs credentials for at least one LLM provider. She auto-detects the first available provider from environment variables or OAuth credentials.
 
-1. **Environment Variable**
+1. **Environment Variable** (any supported provider)
 ```bash
+# Set one or more provider keys
 export ANTHROPIC_API_KEY=sk-ant-...
+# or
+export OPENAI_API_KEY=sk-...
+# or
+export GEMINI_API_KEY=...
 ```
 
 2. **OAuth Login via coding agent command** (Recommended for Claude Pro/Max)
 
 - run interactive coding agent session: `npx @mariozechner/pi-coding-agent`
 - enter `/login` command
-  - choose "Anthropic" provider
+  - choose your provider
   - follow instructions in the browser
 - link `auth.json` to mom: `ln -s ~/.pi/agent/auth.json ~/.pi/mom/auth.json`
+
+### Model Configuration
+
+Configure a specific model and thinking level in `settings.json` (in mom's data directory):
+
+```json
+{
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-sonnet-4-5",
+  "defaultThinkingLevel": "off"
+}
+```
+
+If no model is configured, mom auto-detects the first available provider using the same priority order as the coding agent.
 
 ## How Mom Works
 
