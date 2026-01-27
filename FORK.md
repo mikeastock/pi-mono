@@ -16,11 +16,16 @@ Examples: `0.50.1-fork.1`, `0.50.1-fork.2`, `0.51.0-fork.1`
 
 The upstream version portion makes it immediately clear which release the fork is based on. The fork number (`n`) increments with each fork-specific publish.
 
-## Publishing
+## Release Script
+
+All fork versioning is handled by `scripts/fork-release.mjs`:
 
 ```bash
-cd packages/mom
-npm publish --access public --tag fork
+node scripts/fork-release.mjs status            # Show current version and upstream info
+node scripts/fork-release.mjs bump              # 0.50.1-fork.1 → 0.50.1-fork.2
+node scripts/fork-release.mjs rebase            # Auto-detect latest upstream tag, reset to fork.1
+node scripts/fork-release.mjs rebase 0.51.0     # Explicit upstream version
+node scripts/fork-release.mjs publish           # npm publish --access public --tag fork
 ```
 
 The `--tag fork` dist-tag lets users install with:
@@ -29,9 +34,10 @@ The `--tag fork` dist-tag lets users install with:
 npm install @mikeastock/pi-mom@fork
 ```
 
-## Version Bumps
+## Workflow
 
-| Event | Action |
+| Event | Command |
 |---|---|
-| Fork-specific changes | Bump the fork number: `0.50.1-fork.1` → `0.50.1-fork.2` |
-| Rebase onto new upstream (e.g. `0.51.0`) | Reset to `0.51.0-fork.1` |
+| Fork-specific changes | `node scripts/fork-release.mjs bump` |
+| Rebase onto new upstream | `node scripts/fork-release.mjs rebase` |
+| Publish | `node scripts/fork-release.mjs publish` |
