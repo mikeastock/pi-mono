@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- Model selection now uses `ModelRegistry` instead of hardcoded Anthropic. Supports all providers the coding agent supports (Anthropic, OpenAI, Google, Bedrock, etc.). Configure in `settings.json` with `defaultProvider`, `defaultModel`, and `defaultThinkingLevel`. Auto-detects the first available provider if not configured.
+
+### Fixed
+- `MomSettings.defaultThinkingLevel` type now includes `xhigh`
+
 ## [0.50.1] - 2026-01-26
 
 ## [0.50.0] - 2026-01-26

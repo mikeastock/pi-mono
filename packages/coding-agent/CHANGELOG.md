@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Export `defaultModelPerProvider` from package for reuse by mom
+
 ## [0.50.1] - 2026-01-26
 
 ### Fixed
