@@ -181,7 +181,7 @@ class DockerExecutor implements Executor {
 
 	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
 		// Wrap command for docker exec
-		const dockerCmd = `docker exec ${this.container} sh -c ${shellEscape(command)}`;
+		const dockerCmd = `docker exec ${this.container} bash -c ${shellEscape(command)}`;
 		const hostExecutor = new HostExecutor();
 		return hostExecutor.exec(dockerCmd, options);
 	}
@@ -216,6 +216,6 @@ function killProcessTree(pid: number): void {
 }
 
 function shellEscape(s: string): string {
-	// Escape for passing to sh -c
+	// Escape for passing to bash -c
 	return `'${s.replace(/'/g, "'\\''")}'`;
 }
