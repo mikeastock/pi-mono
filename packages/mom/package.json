@@ -1,5 +1,5 @@
 {
-	"name": "@mariozechner/pi-mom",
+	"name": "@mikeastock/pi-mom",
 	"version": "0.50.1",
 	"description": "Slack bot that delegates messages to the pi coding agent",
 	"type": "module",
@@ -45,7 +45,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/badlogic/pi-mono.git",
+		"url": "git+https://github.com/mikeastock/pi-mono.git",
 		"directory": "packages/mom"
 	},
 	"engines": {
