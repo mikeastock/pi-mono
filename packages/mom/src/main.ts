@@ -117,6 +117,13 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 	let accumulatedText = "";
 	let isWorking = true;
 	const workingIndicator = " ...";
+	const MAX_ACCUMULATED_LENGTH = 35000;
+	const TRUNCATION_PREFIX = "_(earlier output truncated)_\n";
+	const capAccumulatedText = (text: string): string => {
+		if (text.length <= MAX_ACCUMULATED_LENGTH) return text;
+		const maxTailLength = Math.max(0, MAX_ACCUMULATED_LENGTH - TRUNCATION_PREFIX.length);
+		return `${TRUNCATION_PREFIX}${text.slice(-maxTailLength)}`;
+	};
 	let updatePromise = Promise.resolve();
 
 	const user = slack.getUser(event.user);
@@ -140,54 +147,64 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 		users: slack.getAllUsers().map((u) => ({ id: u.id, userName: u.userName, displayName: u.displayName })),
 
 		respond: async (text: string, shouldLog = true) => {
-			updatePromise = updatePromise.then(async () => {
-				accumulatedText = accumulatedText ? `${accumulatedText}\n${text}` : text;
-				const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
+			updatePromise = updatePromise
+				.catch(() => {})
+				.then(async () => {
+					accumulatedText = accumulatedText ? `${accumulatedText}\n${text}` : text;
+					accumulatedText = capAccumulatedText(accumulatedText);
+					const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
 
-				if (messageTs) {
-					await slack.updateMessage(event.channel, messageTs, displayText);
-				} else {
-					messageTs = await slack.postMessage(event.channel, displayText);
-				}
+					if (messageTs) {
+						await slack.updateMessage(event.channel, messageTs, displayText);
+					} else {
+						messageTs = await slack.postMessage(event.channel, displayText);
+					}
 
-				if (shouldLog && messageTs) {
-					slack.logBotResponse(event.channel, text, messageTs);
-				}
-			});
+					if (shouldLog && messageTs) {
+						slack.logBotResponse(event.channel, text, messageTs);
+					}
+				});
 			await updatePromise;
 		},
 
 		replaceMessage: async (text: string) => {
-			updatePromise = updatePromise.then(async () => {
-				accumulatedText = text;
-				const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
-				if (messageTs) {
-					await slack.updateMessage(event.channel, messageTs, displayText);
-				} else {
-					messageTs = await slack.postMessage(event.channel, displayText);
-				}
-			});
+			updatePromise = updatePromise
+				.catch(() => {})
+				.then(async () => {
+					accumulatedText = capAccumulatedText(text);
+					const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
+					if (messageTs) {
+						await slack.updateMessage(event.channel, messageTs, displayText);
+					} else {
+						messageTs = await slack.postMessage(event.channel, displayText);
+					}
+				});
 			await updatePromise;
 		},
 
 		respondInThread: async (text: string) => {
-			updatePromise = updatePromise.then(async () => {
-				if (messageTs) {
-					const ts = await slack.postInThread(event.channel, messageTs, text);
-					threadMessageTs.push(ts);
-				}
-			});
+			updatePromise = updatePromise
+				.catch(() => {})
+				.then(async () => {
+					if (messageTs) {
+						const ts = await slack.postInThread(event.channel, messageTs, text);
+						threadMessageTs.push(ts);
+					}
+				});
 			await updatePromise;
 		},
 
 		setTyping: async (isTyping: boolean) => {
 			if (isTyping && !messageTs) {
-				updatePromise = updatePromise.then(async () => {
-					if (!messageTs) {
-						accumulatedText = eventFilename ? `_Starting event: ${eventFilename}_` : "_Thinking_";
-						messageTs = await slack.postMessage(event.channel, accumulatedText + workingIndicator);
-					}
-				});
+				updatePromise = updatePromise
+					.catch(() => {})
+					.then(async () => {
+						if (!messageTs) {
+							accumulatedText = eventFilename ? `_Starting event: ${eventFilename}_` : "_Thinking_";
+							accumulatedText = capAccumulatedText(accumulatedText);
+							messageTs = await slack.postMessage(event.channel, accumulatedText + workingIndicator);
+						}
+					});
 				await updatePromise;
 			}
 		},
@@ -197,33 +214,37 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 		},
 
 		setWorking: async (working: boolean) => {
-			updatePromise = updatePromise.then(async () => {
-				isWorking = working;
-				if (messageTs) {
-					const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
-					await slack.updateMessage(event.channel, messageTs, displayText);
-				}
-			});
+			updatePromise = updatePromise
+				.catch(() => {})
+				.then(async () => {
+					isWorking = working;
+					if (messageTs) {
+						const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
+						await slack.updateMessage(event.channel, messageTs, displayText);
+					}
+				});
 			await updatePromise;
 		},
 
 		deleteMessage: async () => {
-			updatePromise = updatePromise.then(async () => {
-				// Delete thread messages first (in reverse order)
-				for (let i = threadMessageTs.length - 1; i >= 0; i--) {
-					try {
-						await slack.deleteMessage(event.channel, threadMessageTs[i]);
-					} catch {
-						// Ignore errors deleting thread messages
+			updatePromise = updatePromise
+				.catch(() => {})
+				.then(async () => {
+					// Delete thread messages first (in reverse order)
+					for (let i = threadMessageTs.length - 1; i >= 0; i--) {
+						try {
+							await slack.deleteMessage(event.channel, threadMessageTs[i]);
+						} catch {
+							// Ignore errors deleting thread messages
+						}
 					}
-				}
-				threadMessageTs.length = 0;
-				// Then delete main message
-				if (messageTs) {
-					await slack.deleteMessage(event.channel, messageTs);
-					messageTs = null;
-				}
-			});
+					threadMessageTs.length = 0;
+					// Then delete main message
+					if (messageTs) {
+						await slack.deleteMessage(event.channel, messageTs);
+						messageTs = null;
+					}
+				});
 			await updatePromise;
 		},
 	};

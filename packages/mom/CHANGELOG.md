@@ -7,6 +7,7 @@
 
 ### Fixed
 - `MomSettings.defaultThinkingLevel` type now includes `xhigh`
+- Prevent Slack message overflow from breaking message updates by truncating accumulated output and recovering the update queue
 
 ## [0.50.1] - 2026-01-26
 
