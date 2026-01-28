@@ -608,7 +608,7 @@ def send_test_message(config: dict) -> float:
 # ============================================================================
 
 def poll_for_response(config: dict, send_ts: float) -> bool:
-    """Poll conversation history for mom's response after send_ts."""
+    """Poll conversation history for mom's final response after send_ts."""
     print("")
     print("--- Step 5: Wait for mom's response ---")
     print(f"Polling every {config['poll_interval_seconds']}s (timeout: {config['timeout_seconds']}s)...")
@@ -616,6 +616,7 @@ def poll_for_response(config: dict, send_ts: float) -> bool:
     slack_mcp_url = f"http://127.0.0.1:{config['slack_mcp_server_port']}/mcp"
     deadline = time.time() + config["timeout_seconds"]
     attempt = 0
+    last_main_row: Optional[list[str]] = None
 
     while time.time() < deadline:
         attempt += 1
@@ -646,25 +647,27 @@ def poll_for_response(config: dict, send_ts: float) -> bool:
 
             if response_csv:
                 # CSV columns: MsgID,UserID,UserName,RealName,Channel,ThreadTs,Text,...
-                # Find bot messages posted after we sent our test message.
+                # Find the latest main-channel bot message posted after we sent our test message.
                 # MsgID is a Slack timestamp (e.g. 1769568204.270149).
-                bot_responses = _find_bot_responses(
+                main_row = _find_latest_main_bot_response(
                     response_csv,
                     config["mom_bot_user_id"],
                     send_ts
                 )
-                if bot_responses:
-                    print("")
-                    print("=== PASS ===")
-                    print("Mom responded to the test message.")
-                    print("")
-                    print("Bot response line(s):")
-                    for row in bot_responses:
-                        print(",".join(row))
-                    print("")
-                    print("Recent conversation history:")
-                    print("\n".join(response_csv.split("\n")[:30]))
-                    return True
+                if main_row:
+                    last_main_row = main_row
+                    text = main_row[6] if len(main_row) > 6 else ""
+                    if not _is_working_message(text):
+                        print("")
+                        print("=== PASS ===")
+                        print("Mom responded to the test message.")
+                        print("")
+                        print("Bot response line:")
+                        print(",".join(main_row))
+                        print("")
+                        print("Recent conversation history:")
+                        print("\n".join(response_csv.split("\n")[:30]))
+                        return True
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
@@ -676,36 +679,50 @@ def poll_for_response(config: dict, send_ts: float) -> bool:
 
         time.sleep(config["poll_interval_seconds"])
 
+    if last_main_row:
+        print("")
+        print("Last main message from mom:")
+        print(",".join(last_main_row))
+
     return False
 
 
-def _find_bot_responses(
+def _is_working_message(text: str) -> bool:
+    """Return True if the message still includes the working indicator."""
+    return text.rstrip().endswith(" ...")
+
+
+def _find_latest_main_bot_response(
     csv_content: str,
     bot_user_id: str,
     after_ts: float
-) -> list[list[str]]:
-    """Find bot messages posted after the given unix timestamp."""
-    results = []
+) -> Optional[list[str]]:
+    """Find the latest main-channel bot message after the given unix timestamp."""
+    latest_row: Optional[list[str]] = None
+    latest_ts = after_ts
     try:
         reader = csv.reader(io.StringIO(csv_content))
         for row in reader:
-            if len(row) < 2:
+            if len(row) < 7:
                 continue
             # Skip header row
             if row[0] == "MsgID":
                 continue
-            # Column 0: MsgID (Slack timestamp), Column 1: UserID
+            # Column 0: MsgID (Slack timestamp), Column 1: UserID, Column 5: ThreadTs
             if row[1] != bot_user_id:
+                continue
+            if row[5].strip():
                 continue
             try:
                 msg_ts = float(row[0])
             except ValueError:
                 continue
-            if msg_ts > after_ts:
-                results.append(row)
+            if msg_ts > latest_ts:
+                latest_ts = msg_ts
+                latest_row = row
     except csv.Error:
         pass
-    return results
+    return latest_row
 
 
 def print_final_history(config: dict) -> None:
